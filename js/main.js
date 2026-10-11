@@ -599,7 +599,15 @@ window.addEventListener('spx:storage-error', () => {
   _runShareTargetIfNeeded();
 
   // ⭐ AUTO BACKUP CHECK — sau 5 giây (đợi app render xong)
-  setTimeout(() => {
+  // Nếu đang bận (form/modal đang mở hoặc OCR đang chạy) thì lùi lại 60 giây, tối đa 5 lần — tránh hộp thoại bật đè lúc đang nhập
+  const _tryAutoBackup = (left) => {
+    const busy = document.querySelector('.modal-shade.active') ||
+                 document.getElementById('ocrLoadingOverlay')?.style.display === 'flex';
+    if (busy) {
+      if (left > 0) setTimeout(() => _tryAutoBackup(left - 1), 60000);
+      return;
+    }
     checkAutoBackup().catch(e => console.warn('[AutoBackup] check fail:', e));
-  }, 5000);
+  };
+  setTimeout(() => _tryAutoBackup(5), 5000);
 })();

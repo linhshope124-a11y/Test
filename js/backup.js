@@ -54,13 +54,16 @@ function buildBackupPayload() {
 // ⭐ HÀM MỚI: Tải file thực sự — PHẢI gọi trong click handler đồng bộ
 export function downloadBackupFile(prefix = 'SPX_Data') {
   const payload = buildBackupPayload();
-  const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload, null, 2));
+  // Blob thay vì data: URL — data: URL lớn hơn ~2MB bị Chrome từ chối, đúng lúc dữ liệu nhiều nhất cần backup
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.setAttribute('href', dataStr);
-  a.setAttribute('download', `${prefix}_${getTodayIso()}.json`);
+  a.href = url;
+  a.download = `${prefix}_${getTodayIso()}.json`;
   document.body.appendChild(a);
   a.click();
   a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);   // không thu hồi ngay: một số trình duyệt hủy tải
   markBackupDone();
 }
 

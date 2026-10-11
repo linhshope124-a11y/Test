@@ -409,9 +409,9 @@ function parseOcrText(cleanText) {
 
   // FIX 2: donRegex accept ¡ Ì Í l I | khi đứng trước "Đơn"
   const donNums = [];
-  const donRegex = /([\d¡ÌÍlI|]{1,5})\s*[ĐDđd]\s*[ơo]n\b/gi;
+  const donRegex = /([\d¡ÌÍlI|]{1,5})\s*[ĐDđdB]\s*[ơo]n\b/gi;
   while ((m = donRegex.exec(text)) !== null) {
-    if (!/[ĐD]/.test(m[0])) continue;
+    if (!/[ĐDB]/.test(m[0])) continue;   // chữ thường = dòng "Tổng N đơn hàng", không phải thẻ
 
     const cleaned = m[1].replace(/[¡ÌÍlI|]/g, '1');
     const val = parseInt(cleaned, 10);
@@ -590,7 +590,7 @@ function postProcessFixDigits(parsed) {
 }
 
 // ==================== EXTRACT DATE ====================
-function extractDate(text) {
+function extractDateStrict(text) {
   const cleanText = text.replace(/,/g, '.');
 
   const fullMatch = cleanText.match(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4}|\d{2})/);
@@ -622,12 +622,15 @@ function extractDate(text) {
     }
   }
 
-  return getTodayIso();
+  return null;   // không thấy ngày trong ảnh
+}
+
+function extractDate(text) {
+  return extractDateStrict(text) || getTodayIso();
 }
 
 // =============================================================
-// HẾT PART 1 — Chờ "ok" để gửi PART 2
-// =============================================================// =============================================================
+// =============================================================
 // OCR ENGINE — PART 2/2
 // Batch state · Smart Pipeline (6-pass) · Modals · Exports
 // =============================================================
@@ -737,7 +740,9 @@ async function tryAutoSave(r) {
   const allHigh = confs.every(c => c >= 85);
   if (!allHigh) return false;
 
-  if (r.expectedTotal !== null && r.expectedTotal !== r.totalFound) return false;
+  // Chỉ tự lưu khi đã ĐỐI CHIẾU được: đọc được Tổng và khớp, thấy tab, thấy ngày
+  if (r.expectedTotal === null || r.expectedTotal !== r.totalFound) return false;
+  if (r.tabDetected !== true || r.dateFound !== true) return false;
   if (r.totalFound <= 0) return false;
 
   const dist = validateDistribution(r.weights);
@@ -1027,6 +1032,7 @@ async function processOneFile(file, signal) {
   let bestResult = null;
   let bestText = '';
   let bestDiff = 9999;
+  let knownTotal = null;   // 'Tổng' đọc được ở BẤT KỲ lần quét nào
 
   async function runPass(label, opt) {
     _checkAborted(signal);
@@ -1035,10 +1041,12 @@ async function processOneFile(file, signal) {
     _checkAborted(signal);
     const text = await ocrRecognize(pre.dataUrl, signal);
     const parsed = parseOcrText(text);
+    if (parsed.expectedTotal === null && knownTotal !== null) parsed.expectedTotal = knownTotal;
+    if (parsed.expectedTotal !== null && knownTotal === null) knownTotal = parsed.expectedTotal;
     const diff = parsed.expectedTotal !== null
       ? Math.abs(parsed.totalFound - parsed.expectedTotal)
       : 9999;
-    if (diff < bestDiff) {
+    if (!bestResult || diff < bestDiff) {
       bestResult = parsed;
       bestText = text;
       bestDiff = diff;
@@ -1090,6 +1098,8 @@ async function processOneFile(file, signal) {
 
   const result = {
     detectedColorType: detectedType || 'del',
+    tabDetected: !!detectedType,                       // false → 'del' chỉ là mặc định
+    dateFound: extractDateStrict(bestText) !== null,   // false → ngày chỉ là 'hôm nay' mặc định
     parsedDate: extractDate(bestText),
     weights: bestResult.weights,
     confidences: bestResult.confidences,
